@@ -1,0 +1,54 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "riskguard-ai"
+version = "0.1.0"
+description = "Enterprise risk analytics & automated remediation platform"
+requires-python = ">=3.11,<3.13"
+readme = "README.md"
+
+dependencies = [
+    "pydantic>=2.7",
+    "pydantic-settings>=2.3",
+]
+
+[project.optional-dependencies]
+ml = [
+    "numpy>=1.26",
+    "pandas>=2.2",
+    "scikit-learn>=1.5",
+    "xgboost>=2.0",
+    "matplotlib>=3.9",
+    "imbalanced-learn>=0.12",
+    "joblib>=1.4",
+]
+api = [
+    "fastapi>=0.111",
+    "uvicorn[standard]>=0.30",
+    "sqlalchemy[asyncio]>=2.0",
+    "asyncpg>=0.29",
+    "httpx>=0.27",
+]
+agent = [
+    "langgraph>=0.2.31",
+    "langgraph-checkpoint-postgres>=2.0",
+    "anthropic[bedrock]>=0.40",
+]
+dev = [
+    "pytest>=8.2",
+    "pytest-asyncio>=0.23",
+    "ruff>=0.5",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["app", "ml"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"

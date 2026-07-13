@@ -1,0 +1,77 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: riskguard
+          POSTGRES_PASSWORD: riskguard
+          POSTGRES_DB: riskguard
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U riskguard -d riskguard"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql+asyncpg://riskguard:riskguard@localhost:5432/riskguard
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -e ".[ml,api,agent,dev]"
+
+      - name: Lint
+        run: ruff check app ml scripts tests
+
+      # Model artifacts aren't committed (see .gitignore) — regenerate them
+      # so the app lifespan (which loads RiskModel at startup) can run.
+      - name: Generate dataset and train model artifacts
+        run: |
+          python ml/generate_dataset.py --rows 5000 --seed 42
+          python ml/train.py
+
+      - name: Run tests
+        run: pytest
+
+  docker-build:
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # Duplicated from the test job for job isolation; sharing via
+      # actions/upload-artifact + download-artifact would avoid retraining
+      # if build time becomes a concern.
+      - name: Generate dataset and train model artifacts
+        run: |
+          pip install -e ".[ml]"
+          python ml/generate_dataset.py --rows 5000 --seed 42
+          python ml/train.py
+
+      - name: Build image
+        run: docker build -t riskguard-ai:ci .
+
+      # No `docker push` step: this repo has no container registry configured.
+      # Wire one in (e.g. `docker/login-action` + `docker push`) once a
+      # registry + credentials are available.

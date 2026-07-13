@@ -1,0 +1,14 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+.env.example
+data/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+.git/
+.github/
+tests/
+docker-compose.yml
+PLAN.md

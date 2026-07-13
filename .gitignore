@@ -1,0 +1,13 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+data/
+ml/artifacts/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+*.jpg
+*.jpeg
+*.png
+.claude/settings.local.json
