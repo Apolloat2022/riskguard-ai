@@ -5,10 +5,10 @@ _Last updated: 2026-07-13_
 ## Summary
 
 All 7 phases of `PLAN.md` are implemented. Full test suite passes (**19/19**), and
-everything has now been verified **live**, including the built Docker image against the
-real Neon Postgres instance. Only real Bedrock connectivity remains unverified (no AWS
-credentials in this environment). This file exists so progress isn't lost if a
-session/conversation doesn't carry over (e.g. across a PC restart).
+everything has now been verified **live** end-to-end: Docker image, real Neon Postgres,
+and real AWS Bedrock (Claude) — nothing left running only against mocks. Now mid-deployment
+to AWS (ECS Fargate) for a public portfolio demo; see `AWS_DEPLOYMENT.md`. This file exists
+so progress isn't lost if a session/conversation doesn't carry over.
 
 ## Phase-by-phase status
 
@@ -42,16 +42,35 @@ session/conversation doesn't carry over (e.g. across a PC restart).
   since no AWS credentials are configured in this environment; the app caught
   and logged the error without crashing.
 
-## What's next
+## Real Bedrock verification (2026-07-13)
 
-1. Optional: configure real AWS credentials and run one real request through
-   `app/agent/llm.py`'s `draft_remediation_plan` to verify actual Bedrock connectivity —
-   everything so far has used the fake client injected via `set_client()` in tests.
+- Created IAM user `riskguard-deployer` (access-key based, `AdministratorAccess` for now —
+  tighten before this is anything but a personal portfolio account), configured locally via
+  `aws configure`.
+- **Two separate Bedrock access gates, easy to conflate**:
+  1. Raw model/IAM access — `anthropic.claude-sonnet-5` (the bare model ID) is gated behind
+     AWS Sales approval on this account; `us.anthropic.claude-sonnet-4-5-20250929-v1:0`
+     (an inference-profile ID — required for on-demand invocation of newer models,
+     `aws bedrock list-inference-profiles` to find these) worked immediately.
+  2. Anthropic's own one-time "use case details" form — separate from IAM/model access
+     entirely. Manual-approval "Model access" console page is retired, but the form still
+     exists: classic Bedrock console (drop `-mantle` from the URL) → Model catalog → pick
+     a Claude model → banner has a **Submit use case details** button. Takes a few minutes
+     to propagate after submitting.
+- **Found and fixed a real bug while verifying**: `app/agent/llm.py` constructed
+  `AnthropicBedrockMantle` (the newer bedrock-mantle-endpoint client). Mantle access turned
+  out to be gated separately from classic Bedrock runtime access and returned 403 for every
+  model on this account regardless of the use-case form. Switched to the classic
+  `AnthropicBedrock` client (same inference-profile model ID) — confirmed working via a
+  live container run: `POST .../invoke "HTTP/1.1 200 OK"` for customer 28's remediation plan.
+  `BEDROCK_MODEL_ID` in `.env`/`.env.example` reflects the working inference-profile ID.
 
 ## Key environment facts (so a fresh session doesn't have to rediscover these)
 
-- **This directory is not yet a git repository** (`git init` was never run). `.gitignore`
-  and `.dockerignore` are written and ready for whenever it is.
+- Now a git repository, pushed to https://github.com/Apolloat2022/riskguard-ai.
+  `Bedrock screenshot.jpg`, `Docer installation.jpg`, `gettingstarted*.jpg`,
+  `models.jpg`, `submittoanthropic.jpg` and similar working screenshots are gitignored
+  (`*.jpg`) — they contain the AWS account ID/ARNs and shouldn't be pushed.
 - `.env` (gitignored) has a **real, working Neon `DATABASE_URL`** — already corrected for
   SQLAlchemy/asyncpg (`postgresql+asyncpg://...?ssl=require`; the pasted Neon console
   string uses `postgresql://...?sslmode=require&channel_binding=require`, which is
@@ -59,9 +78,13 @@ session/conversation doesn't carry over (e.g. across a PC restart).
 - The Neon DB already has the full schema plus **50 seeded demo customers**
   (`python scripts/seed_db.py` was already run). Every 7th customer (7, 14, 21, 28, 35, 42,
   49) is engineered high-risk. Customer 28 has already been exercised through the full
-  risk-assessment → remediation-case → agent-pause → approve flow.
+  risk-assessment → remediation-case → agent-pause → approve flow, including with a real
+  Bedrock-drafted remediation plan.
 - The local venv (`.venv/`) was built with **Python 3.11** via `py -3.11`, not the system
   `python` (which resolves to 3.14 — too new for reliable XGBoost/scikit-learn wheels).
-- Docker was not installed for most of this build; it's mid-install as of this note.
-- No AWS credentials are configured in this environment — Bedrock has only been exercised
-  through the fake-client test seam, never for real.
+- AWS CLI v2 is installed at `C:\Program Files\Amazon\AWSCLIV2\` — needed admin rights to
+  install (the installer's default machine-wide install fails silently with error 1925
+  otherwise); PATH may need refreshing per-shell (`$env:Path` in PowerShell, `export
+  PATH=".../AWSCLIV2:$PATH"` in Git Bash) since it was installed mid-session.
+- Currently mid-deployment to AWS (ECS Fargate) for a public portfolio demo — see
+  `AWS_DEPLOYMENT.md` for the full plan and progress.

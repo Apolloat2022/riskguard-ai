@@ -166,8 +166,40 @@ If that returns a real completion, you're set. On this project, `claude-sonnet-5
 `us.anthropic.claude-sonnet-4-5-20250929-v1:0` and
 `us.anthropic.claude-haiku-4-5-20251001-v1:0` worked immediately with no approval step —
 `BEDROCK_MODEL_ID` in `.env`/`.env.example` is set to the Sonnet 4.5 profile ID
-accordingly. If you later get Sonnet 5 approved, switching back is a one-line env var
-change, no code changes (`app/agent/llm.py` just passes `BEDROCK_MODEL_ID` through).
+accordingly. If you later get Sonnet 5 approved, switching the model back is a one-line
+env var change (`app/agent/llm.py` just passes `BEDROCK_MODEL_ID` through).
+
+**A third, separate gate**: Anthropic requires a one-time "use case details" form per AWS
+account before their models can be invoked *through the Anthropic SDK* — independent of
+the IAM/model access above, which the raw `invoke-model` CLI call bypasses entirely. The
+error looks like `Model use case details have not been submitted for this account`. The
+old manual-approval "Model access" page is retired, but the form itself still exists:
+open the **classic** Bedrock console (drop `-mantle` from the console URL) → **Model
+catalog** → click into any Claude model → a banner reads *"Anthropic requires first-time
+customers to submit use case details..."* with a **Submit use case details** button.
+Fill in company/website/industry/intended-users/use-case description and submit — takes a
+few minutes to propagate.
+
+**A fourth gotcha that cost real debugging time**: `app/agent/llm.py` originally used
+`AnthropicBedrockMantle` (the SDK's newer bedrock-mantle-endpoint client). That endpoint
+turned out to be gated *separately* from classic Bedrock runtime access on this account —
+every model returned `403 ... is not available for this account`, even after the use-case
+form above was submitted and confirmed working for the classic path. The fix was to
+switch the import to the classic `AnthropicBedrock` client (same inference-profile model
+ID otherwise) — verify with:
+
+```bash
+.venv/Scripts/python.exe -c "
+from anthropic import AnthropicBedrock
+client = AnthropicBedrock(aws_region='us-east-1')
+r = client.messages.create(model='us.anthropic.claude-sonnet-4-5-20250929-v1:0', max_tokens=16, messages=[{'role':'user','content':'Say OK'}])
+print(r.content)
+"
+```
+
+If your account's mantle access is enabled (unlike this one), `AnthropicBedrockMantle`
+may work fine and would be the more modern choice — just confirm with a real call before
+building on top of it either way, for the same reason as everything else in this step.
 
 ## Step 5 — One required code change: switch the checkpointer to Postgres
 
