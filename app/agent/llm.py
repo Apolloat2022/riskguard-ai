@@ -13,7 +13,7 @@ import json
 import logging
 
 import anthropic
-from anthropic import AnthropicBedrockMantle
+from anthropic import AnthropicBedrock
 
 from app.config import settings
 from app.exceptions import LLMRefusalError, LLMTimeoutError
@@ -55,7 +55,7 @@ def _active_client() -> anthropic.Anthropic:
     if _override_client is not None:
         return _override_client
     if _default_client is None:
-        _default_client = AnthropicBedrockMantle(aws_region=settings.aws_region, timeout=60.0)
+        _default_client = AnthropicBedrock(aws_region=settings.aws_region, timeout=60.0)
     return _default_client
 
 
