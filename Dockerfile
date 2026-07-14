@@ -21,7 +21,7 @@ COPY app ./app
 COPY ml ./ml
 
 RUN pip install --no-cache-dir --upgrade pip \
-    && pip install --no-cache-dir ".[ml,api,agent]"
+    && pip install --no-cache-dir ".[ml,api,agent,mcp]"
 
 
 FROM python:3.12-slim AS runtime

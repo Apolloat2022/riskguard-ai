@@ -129,6 +129,20 @@ class PolicyRetriever:
             sources.append(_GENERAL_DOC)
         return sources
 
+    def get_state_policies(self, state_code: str) -> list[ParentChunk]:
+        """All parent chunks scoped to state_code + the general doc, unranked
+        — for callers (e.g. the MCP compliance resource) that want the full
+        text rather than a query-ranked top-k."""
+        sources = self._scoped_sources(state_code)
+        parents: list[ParentChunk] = []
+        seen_ids: set[str] = set()
+        for source in sources:
+            for parent in self._parents_by_source[source]:
+                if parent.id not in seen_ids:
+                    seen_ids.add(parent.id)
+                    parents.append(parent)
+        return parents
+
     def retrieve_policies(self, query: str, state_code: str, k: int = 3) -> list[ParentChunk]:
         """Scores children, takes the top-k, and returns their deduplicated
         parents (in ranked order) — so the result can contain fewer than k
@@ -190,3 +204,8 @@ def get_retriever() -> PolicyRetriever:
 def retrieve_policies(query: str, state_code: str, k: int = 3) -> list[ParentChunk]:
     """Module-level convenience wrapper matching the plan's stated interface."""
     return get_retriever().retrieve_policies(query, state_code, k=k)
+
+
+def get_state_policies(state_code: str) -> list[ParentChunk]:
+    """Module-level convenience wrapper mirroring retrieve_policies() above."""
+    return get_retriever().get_state_policies(state_code)

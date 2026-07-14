@@ -43,3 +43,25 @@ def test_stopword_only_query_returns_empty_without_error():
     results = retriever.retrieve_policies("the a of", "CA", k=2)
 
     assert results == []
+
+
+def test_get_state_policies_returns_all_parents_unranked():
+    retriever = PolicyRetriever()
+    ranked = retriever.retrieve_policies(
+        "loan restructuring rate reduction forbearance disclosure requirements", "CA", k=100
+    )
+    all_parents = retriever.get_state_policies("CA")
+
+    # Unranked: returns every CA + general parent chunk, not just a top-k
+    # subset scored against some query.
+    assert len(all_parents) >= len(ranked)
+    assert {p.source for p in all_parents} == {"policy_CA.md", "underwriting_general.md"}
+    assert all(p.id in {ap.id for ap in all_parents} for p in ranked)
+
+
+def test_get_state_policies_unsupported_state_falls_back_to_general_only():
+    retriever = PolicyRetriever()
+    results = retriever.get_state_policies("FL")
+
+    assert results
+    assert all(p.source == "underwriting_general.md" for p in results)
