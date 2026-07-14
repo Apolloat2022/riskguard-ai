@@ -88,11 +88,25 @@ def _psycopg_dsn(database_url: str) -> str:
 @asynccontextmanager
 async def _checkpointer_cm():
     if settings.checkpointer_backend == "postgres":
+        from psycopg.rows import dict_row
+        from psycopg_pool import AsyncConnectionPool
+
         from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 
-        async with AsyncPostgresSaver.from_conn_string(
-            _psycopg_dsn(settings.database_url)
-        ) as saver:
+        # A single long-lived connection (the from_conn_string() shortcut) goes
+        # silently stale once Neon closes it for being idle, and every request
+        # after that fails with "the connection is closed" until the process
+        # restarts. A pool with check=check_connection validates (and
+        # transparently replaces) the connection on each checkout instead.
+        async with AsyncConnectionPool(
+            conninfo=_psycopg_dsn(settings.database_url),
+            kwargs={"autocommit": True, "prepare_threshold": 0, "row_factory": dict_row},
+            min_size=1,
+            max_size=5,
+            check=AsyncConnectionPool.check_connection,
+            open=False,
+        ) as pool:
+            saver = AsyncPostgresSaver(pool)
             await saver.setup()
             yield saver
     else:

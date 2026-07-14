@@ -123,6 +123,24 @@ the resource in the `invoke-bedrock` policy (Step 8) to
 `arn:aws:bedrock:*::foundation-model/anthropic.claude-sonnet-4-5-20250929-v1:0` (kept the
 specific `us-east-1` inference-profile ARN as-is).
 
+**Blocker #4 (resolved, found after ~10hrs of uptime)**: after the task had been running
+idle for a while, every remediation workflow started failing with `psycopg.OperationalError:
+consuming input failed: SSL connection has been closed unexpectedly` (or `the connection
+is closed`), escalating every case with no way to recover except restarting the task.
+Root cause: `app/agent/graph.py`'s `_checkpointer_cm()` opened **one long-lived
+`AsyncConnection`** via `AsyncPostgresSaver.from_conn_string()` at process startup and
+held it for the process's whole lifetime — but Neon (serverless Postgres) closes idle
+connections, so after enough idle time that single connection goes stale and every
+subsequent checkpointer call fails immediately. Fixed by switching to a
+`psycopg_pool.AsyncConnectionPool` (langgraph-checkpoint-postgres accepts either an
+`AsyncConnection` or an `AsyncConnectionPool` — see `_ainternal.Conn` in the library) with
+`check=AsyncConnectionPool.check_connection`, which validates/replaces the connection on
+every checkout instead of trusting a single connection to stay alive indefinitely. Verify
+locally with a real Neon connection (note: `CHECKPOINTER_BACKEND=postgres`, and on Windows
+you need `asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())` before
+importing psycopg — `ProactorEventLoop`, Windows's asyncio default, doesn't support
+psycopg's async mode; irrelevant on the Linux container in production).
+
 ## Prerequisites
 
 - An AWS account (not your everyday account if you can help it — use a fresh one, or at
