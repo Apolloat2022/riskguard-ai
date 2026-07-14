@@ -1,14 +1,15 @@
 # Build Status
 
-_Last updated: 2026-07-13_
+_Last updated: 2026-07-14_
 
 ## Summary
 
 All 7 phases of `PLAN.md` are implemented. Full test suite passes (**19/19**), and
 everything has now been verified **live** end-to-end: Docker image, real Neon Postgres,
-and real AWS Bedrock (Claude) — nothing left running only against mocks. Now mid-deployment
-to AWS (ECS Fargate) for a public portfolio demo; see `AWS_DEPLOYMENT.md`. This file exists
-so progress isn't lost if a session/conversation doesn't carry over.
+and real AWS Bedrock (Claude) — nothing left running only against mocks. **Deployed and
+live on AWS (ECS Fargate)** for a public portfolio demo — see `AWS_DEPLOYMENT.md` for the
+full deploy history and current URL. This file exists so progress isn't lost if a
+session/conversation doesn't carry over.
 
 ## Phase-by-phase status
 
@@ -86,5 +87,5 @@ so progress isn't lost if a session/conversation doesn't carry over.
   install (the installer's default machine-wide install fails silently with error 1925
   otherwise); PATH may need refreshing per-shell (`$env:Path` in PowerShell, `export
   PATH=".../AWSCLIV2:$PATH"` in Git Bash) since it was installed mid-session.
-- Currently mid-deployment to AWS (ECS Fargate) for a public portfolio demo — see
-  `AWS_DEPLOYMENT.md` for the full plan and progress.
+- **Live in production** on AWS (ECS Fargate) — see `AWS_DEPLOYMENT.md` for the public
+  URL, the full deploy history, and cost-control/teardown commands.

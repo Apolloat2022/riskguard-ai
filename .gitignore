@@ -11,3 +11,4 @@ ml/artifacts/
 *.jpeg
 *.png
 .claude/settings.local.json
+task-def.json

@@ -58,6 +58,71 @@ single biggest cost trap in most ECS tutorials — a NAT Gateway is ~$32+/month 
 something this app doesn't need, since there's no private-subnet resource (like RDS) to
 protect. Skip it.
 
+## Current progress (2026-07-14) — LIVE
+
+**Deployed and verified working end-to-end.** Public URL:
+`http://riskguard-alb-143265901.us-east-1.elb.amazonaws.com` — try
+`POST /api/v1/risk-assessment/28` for the full risk-assessment → remediation-case →
+Bedrock-drafted-plan flow against the seeded high-risk demo customer.
+
+Everything through Step 12 is done and confirmed in AWS account `924056189531`
+(region `us-east-1`):
+
+| Resource | Status |
+|---|---|
+| GitHub repo | pushed, https://github.com/Apolloat2022/riskguard-ai |
+| IAM deployer user | `riskguard-deployer`, AWS CLI configured locally |
+| Bedrock access | verified live (see Step 4) |
+| ECR repo + image | `924056189531.dkr.ecr.us-east-1.amazonaws.com/riskguard-ai:latest` pushed |
+| `riskguard-execution-role`, `riskguard-task-role` | created (Step 8) |
+| Secrets Manager | `riskguard-ai/database-url` created |
+| Task definition | `riskguard-ai:1` registered |
+| ECS cluster | `riskguard-cluster` created (hit and fixed two setup issues below) |
+| ECS service | `riskguard-ai-service-2wgi0kru` — **stable, 1/1 running, healthy** |
+
+**Two ECS setup issues hit and fixed, for reference:**
+1. First cluster-creation attempt failed with *"Unable to assume the service linked
+   role"* — the `AWSServiceRoleForECS` service-linked role didn't exist yet in this fresh
+   account. It gets created as a side effect of the first attempt; retrying the same
+   cluster creation works. Also leaves a `CREATE_FAILED` CloudFormation stack
+   (`Infra-ECS-Cluster-<name>-<hash>`) behind that must be deleted before reusing the same
+   cluster name (`aws cloudformation delete-stack`).
+2. First service-creation attempt failed with *"CIDR block CIDR 0.0.0.0/0 is malformed"*
+   — a stray literal "CIDR " got typed into the security-group source CIDR field along
+   with the value. Same cleanup pattern: delete the failed
+   `ECS-Console-V2-Service-<name>-<cluster>-<hash>` stack, retry with just `0.0.0.0/0`.
+
+**Blocker #1 (resolved)**: the service's task crashed during FastAPI startup because
+`CHECKPOINTER_BACKEND=postgres` needed `psycopg`, which needs `libpq`/a binary wheel not
+present in the base image (see the note under Step 5). Fixed by adding `psycopg[binary]`
+to the `agent` extra in `pyproject.toml`, rebuilding, and pushing. The rebuild had
+separately been blocked by the `C:` drive filling up (0.1GB free) under Docker Desktop's
+WSL2 data — resolved by relocating Docker's data to a drive with more room
+(Docker Desktop → Settings → Resources → Advanced → Disk image location).
+
+**Blocker #2 (resolved)**: after the psycopg fix, the task started cleanly (confirmed via
+`aws logs tail /ecs/riskguard-ai`, prefixed with `MSYS_NO_PATHCONV=1` in Git Bash since it
+otherwise mangles the leading `/` in the log group name) but the ALB marked it
+**unhealthy with `Target.Timeout`**. Root cause: the ALB and the ECS task share one
+security group (`sg-0400fb362f75e8d25`), which only had an inbound rule for port 80
+(public) — nothing for port 8000 (the container port), so the ALB's health check
+couldn't even reach the container. Fixed with a self-referencing ingress rule:
+```bash
+aws ec2 authorize-security-group-ingress --group-id sg-0400fb362f75e8d25 \
+  --protocol tcp --port 8000 --source-group sg-0400fb362f75e8d25 --region us-east-1
+```
+
+**Blocker #3 (resolved)**: once healthy, `risk-assessment/28` worked but the Bedrock
+remediation step failed with `403 ... not authorized ... on resource:
+arn:aws:bedrock:us-east-2::foundation-model/...`. `riskguard-task-role`'s policy only
+granted `InvokeModel` on the **us-east-1** foundation-model ARN, but the `us.`-prefixed
+cross-region inference profile actually routed the request to **us-east-2** — this class
+of profile can land in any region within its geo group, so IAM must allow the
+foundation-model ARN across all of them, not just the primary region. Fixed by widening
+the resource in the `invoke-bedrock` policy (Step 8) to
+`arn:aws:bedrock:*::foundation-model/anthropic.claude-sonnet-4-5-20250929-v1:0` (kept the
+specific `us-east-1` inference-profile ARN as-is).
+
 ## Prerequisites
 
 - An AWS account (not your everyday account if you can help it — use a fresh one, or at
@@ -218,6 +283,20 @@ as `DATABASE_URL`, and it calls `.setup()` automatically on first startup — no
 migration step. Set this in Secrets Manager / the task definition below, not in `memory`
 mode, for anything you're going to demo live.
 
+**A real dependency bug this surfaced**: `AsyncPostgresSaver` imports `psycopg`, and plain
+`psycopg` needs the `libpq` C library or a precompiled binary wheel to actually connect —
+neither is present in the `python:3.12-slim` runtime image. First deploy attempt with
+`CHECKPOINTER_BACKEND=postgres` crashed on startup with `psycopg.pq...ImportError: no pq
+wrapper available ... libpq library not found`, and the task exits 0 (looks like a clean
+shutdown in ECS's console, not a crash — check CloudWatch Logs, not just task exit code,
+when a task cycles). Fixed by adding `psycopg[binary]` to the `agent` extra in
+`pyproject.toml` (bundles precompiled bindings, no Dockerfile/apt changes needed) — verify
+locally before redeploying:
+
+```bash
+.venv/Scripts/python.exe -c "from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver; print('import OK')"
+```
+
 ## Step 6 — Put secrets in Secrets Manager
 
 Don't put `DATABASE_URL` in plaintext task-definition environment variables — anyone with
@@ -292,14 +371,20 @@ aws iam put-role-policy --role-name riskguard-task-role \
     "Version":"2012-10-17",
     "Statement":[{"Effect":"Allow","Action":["bedrock:InvokeModel","bedrock:InvokeModelWithResponseStream"],
       "Resource":[
-        "arn:aws:bedrock:us-east-1::foundation-model/anthropic.claude-sonnet-4-5-20250929-v1:0",
+        "arn:aws:bedrock:*::foundation-model/anthropic.claude-sonnet-4-5-20250929-v1:0",
         "arn:aws:bedrock:us-east-1:<ACCOUNT_ID>:inference-profile/us.anthropic.claude-sonnet-4-5-20250929-v1:0"
       ]}]
   }'
 ```
 
 (Using the inference-profile ID here, per Step 4 — IAM needs permission on both the
-underlying foundation-model ARN and the inference-profile ARN that routes to it.)
+underlying foundation-model ARN and the inference-profile ARN that routes to it. The
+foundation-model resource uses a **wildcard region** (`bedrock:*::foundation-model/...`)
+rather than just `us-east-1` — a `us.`-prefixed cross-region inference profile can route
+the actual `InvokeModel` call to any region in its geo group (observed landing in
+`us-east-2` in practice), and IAM checks the resource ARN in whichever region it actually
+executes in. Scoping to only `us-east-1` causes a confusing `403` that only shows up at
+runtime, not at policy-creation time.)
 
 ## Step 9 — Register the task definition
 
@@ -358,8 +443,13 @@ does all three in one flow when you pick "Application Load Balancer":
      want to talk about that in an interview).
    - Networking: pick the **default VPC**, all **public subnets**, and check
      **"Auto-assign public IP"** — this is what avoids the NAT Gateway.
-   - Security group: allow inbound TCP 8000 from the ALB's security group only (the
-     wizard creates this correctly if you let it manage the SG).
+   - Security group: allow inbound TCP 8000 from the ALB's security group only. **Verify
+     this after creation** — on this deploy, the wizard put the ALB and the task in the
+     *same* security group with only a port-80 (public) rule, and no rule for port 8000,
+     so the ALB's health checks silently timed out (`Target.Timeout`) even though the app
+     was running fine. If the ALB and task end up sharing one SG, add a self-referencing
+     rule: `aws ec2 authorize-security-group-ingress --group-id <sg-id> --protocol tcp
+     --port 8000 --source-group <sg-id>`.
    - Load balancer: Application Load Balancer → create new → target group health check
      path **`/docs`** (there's no dedicated `/healthz` route yet — FastAPI's
      auto-generated `/docs` returns 200 once the app is up, confirmed in the local
