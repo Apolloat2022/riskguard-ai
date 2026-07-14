@@ -12,3 +12,5 @@ ml/artifacts/
 *.png
 .claude/settings.local.json
 task-def.json
+*.pdf
+MCPprompt.txt

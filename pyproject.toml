@@ -37,6 +37,9 @@ agent = [
     "psycopg[binary]>=3.1",
     "anthropic[bedrock]>=0.40",
 ]
+mcp = [
+    "mcp>=1.9",
+]
 dev = [
     "pytest>=8.2",
     "pytest-asyncio>=0.23",
@@ -48,6 +51,12 @@ packages = ["app", "ml"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+# Session-scoped: the mounted MCP session manager (app/mcp) can only be
+# entered once per instance (see tests/conftest.py's api_client fixture) —
+# every fixture and test must share one consistent event loop to use it
+# safely, so both fixtures and tests default to the session loop.
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"
 testpaths = ["tests"]
 
 [tool.ruff]

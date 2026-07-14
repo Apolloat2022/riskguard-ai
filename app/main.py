@@ -5,8 +5,9 @@ shutdown; route dependencies read them off app.state."""
 from __future__ import annotations
 
 import logging
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 
+import httpx
 from fastapi import FastAPI
 
 from app.agent.graph import init_agent_graph, shutdown_agent_graph
@@ -16,6 +17,7 @@ from app.config import settings
 from app.db.engine import build_engine, build_session_factory
 from app.exceptions import register_exception_handlers
 from app.logging_conf import configure_logging
+from app.mcp import build_mcp_server
 from ml.predict import RiskModel
 
 logger = logging.getLogger(__name__)
@@ -44,10 +46,38 @@ async def lifespan(app: FastAPI):
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="RiskGuard AI", lifespan=lifespan)
+    # Two-phase construction: build_mcp_server(app) needs the FastAPI
+    # instance to already exist (its tools close over app.state), so the
+    # combined lifespan below can't be passed to FastAPI(...) up front —
+    # it's assigned onto app.router.lifespan_context afterward instead.
+    app = FastAPI(title="RiskGuard AI")
     register_exception_handlers(app)
     app.include_router(risk_router)
     app.include_router(remediation_router)
+
+    mcp_server = build_mcp_server(app)
+    app.state.mcp_server = mcp_server  # lets tests reach it directly
+    # Mounted at "/", not "/mcp" — mcp_server.streamable_http_app() already
+    # answers at /mcp internally (FastMCP's default streamable_http_path);
+    # mounting *that* app at "/mcp" would double the prefix to "/mcp/mcp".
+    app.mount("/", mcp_server.streamable_http_app())
+
+    @asynccontextmanager
+    async def combined_lifespan(app: FastAPI):
+        async with lifespan(app):
+            async with AsyncExitStack() as stack:
+                # A mounted sub-application's lifespan never runs, so the
+                # MCP session manager must be entered explicitly here.
+                app.state.mcp_http_client = await stack.enter_async_context(
+                    httpx.AsyncClient(
+                        transport=httpx.ASGITransport(app=app),
+                        base_url="http://mcp-internal",
+                    )
+                )
+                await stack.enter_async_context(mcp_server.session_manager.run())
+                yield
+
+    app.router.lifespan_context = combined_lifespan
     return app
 
 
