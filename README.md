@@ -5,7 +5,9 @@ default risk with a trained XGBoost pipeline, and for high-risk customers, kicks
 stateful LangGraph agent that retrieves the applicable policy documents (parent-child RAG),
 drafts a remediation plan via Claude Sonnet 5 (Amazon Bedrock), runs it through a
 deterministic compliance check, and pauses for human (compliance-officer) sign-off before
-finalizing.
+finalizing. The same workflow is also exposed as an MCP server, so any MCP-speaking AI
+client (Claude Desktop, Cursor, etc.) can call it directly instead of going through the
+REST API.
 
 See [`PLAN.md`](./PLAN.md) for the full architectural blueprint this was built from.
 
@@ -36,6 +38,14 @@ See [`PLAN.md`](./PLAN.md) for the full architectural blueprint this was built f
                                                     resumes the graph
 ```
 
+Not pictured above: an **MCP server** (`FastMCP`, streamable-HTTP transport) is mounted
+on the same FastAPI app at `/mcp`. It's a thin protocol-translation layer over the exact
+same request path shown in the diagram — `assess_loan_risk`, `get_remediation_case`, and
+`resume_remediation_case` tools call the REST endpoints in-process (via an ASGI-transport
+`httpx` client), so there's zero duplicated business logic. A
+`compliance://regulations/{state}` resource serves the same policy corpus the RAG
+retriever draws from. See `app/mcp/server.py`.
+
 **Skills demonstrated, mapped to the codebase:**
 
 | Area | Where |
@@ -44,13 +54,14 @@ See [`PLAN.md`](./PLAN.md) for the full architectural blueprint this was built f
 | Backend engineering — async FastAPI, SQLAlchemy 2.0 async, a hand-written CTE, Neon Postgres | `app/` |
 | GenAI / RAG — parent-child chunking retriever over policy documents, TF-IDF small-to-large retrieval | `app/rag/` |
 | Agentic AI — stateful LangGraph with conditional edges, bounded revision loop, checkpointer, human-in-the-loop `interrupt()` | `app/agent/` |
+| Agentic tool protocol — MCP server (`FastMCP`) exposing the workflow as tools + a resource for external AI clients, zero duplicated logic | `app/mcp/` |
 
 ## Repository layout
 
 ```
 riskguard-ai/
 ├── PLAN.md                # full architectural blueprint
-├── pyproject.toml          # single project; deps grouped [ml] [api] [agent] [dev]
+├── pyproject.toml          # single project; deps grouped [ml] [api] [agent] [mcp] [dev]
 ├── .env.example            # every env var, no values
 ├── Dockerfile               # multi-stage, uvicorn, for Fargate
 ├── docker-compose.yml       # local Postgres for dev (optional; Neon otherwise)
@@ -63,6 +74,7 @@ riskguard-ai/
 │   ├── api/                 # risk.py, remediation.py
 │   ├── rag/                 # policy documents + retriever
 │   ├── agent/                # state, nodes, graph, Bedrock LLM wrapper
+│   ├── mcp/                  # FastMCP server: tools + compliance:// resource
 │   └── schemas.py
 ├── scripts/                 # seed_db.py, run_migration.sql
 └── tests/
@@ -72,7 +84,8 @@ riskguard-ai/
 
 ```bash
 python -m venv .venv && source .venv/bin/activate   # or .venv\Scripts\activate on Windows
-pip install -e ".[ml,api,agent]"
+pip install -e ".[ml,api,agent,mcp]"   # mcp is required, not optional — app/main.py
+                                         # imports it unconditionally to mount the server
 
 cp .env.example .env   # fill DATABASE_URL (Neon or local docker-compose), AWS_REGION
 
@@ -113,6 +126,13 @@ curl -s -X POST http://localhost:8000/api/v1/remediation/$CASE_ID/reject \
   -H 'Content-Type: application/json' -d '{"notes": "Shorten the term extension."}' | jq
 ```
 
+The same flow is available over MCP instead of REST — the server is mounted at `/mcp`
+(streamable-HTTP) on the same app, so nothing extra needs to run. `tests/test_mcp.py`
+has a complete working client example (`ClientSession` over
+`mcp.client.streamable_http`); the tools are `assess_loan_risk(customer_id)`,
+`get_remediation_case(case_id)`, and `resume_remediation_case(case_id, approved, notes)`,
+plus a `compliance://regulations/{state}` resource.
+
 ## Model card (from `ml/artifacts/v1/metrics.json`)
 
 | Metric | Value |
@@ -142,6 +162,7 @@ pytest
 - `test_retriever.py` — parent-child RAG retrieval, state-scoping, fallback behavior
 - `test_agent_graph.py` — the LangGraph workflow end-to-end (happy path, revision loop, human-denial-triggers-revision, max-revisions-exhausted-escalates) against a real database with a **mocked** Anthropic client
 - `test_api.py` — the full HTTP surface via `httpx.AsyncClient` against the real app (real lifespan, real DB, mocked LLM)
+- `test_mcp.py` — the same scenarios as `test_api.py`, driven through the real MCP tools/resource instead of REST, over the real streamable-HTTP protocol (in-process, no real sockets)
 
 All DB-backed tests create their own rows (prefixed `TEST-...`) and clean them up —
 none of them touch the seeded demo data.
