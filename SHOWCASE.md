@@ -18,9 +18,18 @@ documents
 Amazon Bedrock — that retrieves policy context, drafts a compliant remediation plan,
 runs it through automated compliance checks with a bounded revision loop, and pauses for
 human sign-off via a human-in-the-loop `interrupt()` before finalizing
+🔹 **MCP server**: A Model Context Protocol layer (`FastMCP`, streamable-HTTP transport)
+exposing the same risk/remediation workflow as first-class tools an external AI client —
+Claude Desktop, Cursor, or any MCP-speaking agent — can call directly, with zero
+duplicated business logic: `assess_loan_risk`, `get_remediation_case`, and
+`resume_remediation_case` are thin adapters over the existing REST endpoints, plus a
+`compliance://regulations/{state}` resource serving the same policy corpus the RAG
+retriever draws from
 
 The result: when a customer crosses a default-risk threshold, the system doesn't just
 flag it — it drafts a compliant, policy-grounded remediation plan and routes it to a
-human for approval, with a full audit trail at every step.
+human for approval, with a full audit trail at every step. And it's not locked behind a
+custom UI: any MCP-compatible agent can assess risk, pull a remediation case, or approve
+one, the same way a human operator would through the REST API.
 
-`#MachineLearning #GenAI #AgenticAI #LangGraph #FastAPI #Claude #MLOps`
+`#MachineLearning #GenAI #AgenticAI #LangGraph #FastAPI #Claude #MLOps #MCP #ModelContextProtocol`
