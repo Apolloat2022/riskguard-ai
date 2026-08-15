@@ -14,7 +14,12 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+asyncpg://user:pass@localhost/riskguard"
 
     aws_region: str = "us-east-1"
-    bedrock_model_id: str = "anthropic.claude-sonnet-5"
+    # app/agent/llm.py uses AnthropicBedrock (the bedrock-runtime InvokeModel
+    # path), which wants a region-prefixed cross-region inference profile ID —
+    # not a bare "anthropic.<model>" ID. Keep this in sync with .env.example
+    # and task-def.json; a mismatch here only surfaces at the first Bedrock
+    # call, long after startup.
+    bedrock_model_id: str = "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
 
     model_artifact_dir: Path = Path("ml/artifacts/v1")
 
