@@ -27,6 +27,12 @@ class Settings(BaseSettings):
 
     checkpointer_backend: Literal["memory", "postgres"] = "memory"
 
+    # Shared secret guarding every route except /healthz (see app/auth.py).
+    # Unset disables enforcement so local runs and the test suite work without
+    # ceremony; app/main.py logs a warning at startup when that happens. Any
+    # internet-reachable deployment must set API_KEY.
+    api_key: str | None = None
+
     log_level: str = "INFO"
 
 
