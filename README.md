@@ -82,6 +82,14 @@ riskguard-ai/
 
 ## Quickstart
 
+**Python 3.12 is required** — CI and the container image both run 3.12, and the
+project declares `>=3.12,<3.13` so a mismatched interpreter fails at install
+rather than diverging quietly. If you don't have it:
+
+```bash
+pip install uv && uv python install 3.12   # user-scoped, no admin rights, no MSI
+```
+
 ```bash
 python -m venv .venv && source .venv/bin/activate   # or .venv\Scripts\activate on Windows
 pip install -e ".[ml,api,agent,mcp]"   # mcp is required, not optional — app/main.py
@@ -199,6 +207,16 @@ docker run --rm -v "$PWD:/w" -w /w python:3.12-slim sh -c \
 After regenerating, diff the resulting image's `pip freeze` against the running
 one before deploying — an unintended version bump is much easier to see there
 than in a 300-line lock diff.
+
+**The locks are linux artifacts, not local dev inputs.** They contain
+`uvloop==0.22.1` with no environment marker, because `uv pip compile` resolved
+them for linux only and uvloop ships no Windows wheels — `pip install -r
+requirements.lock` fails outright on Windows. Local development installs from
+the `pyproject` ranges instead, which means **CI is the source of truth for
+dependency versions**, not your venv.
+
+Regenerating with `uv pip compile --universal` would emit markers valid on both
+platforms and close that gap; it is not done yet.
 
 ## Verification notes (this build)
 
