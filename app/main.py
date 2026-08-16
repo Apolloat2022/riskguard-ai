@@ -11,8 +11,10 @@ import httpx
 from fastapi import FastAPI
 
 from app.agent.graph import init_agent_graph, shutdown_agent_graph
+from app.api.health import router as health_router
 from app.api.remediation import router as remediation_router
 from app.api.risk import router as risk_router
+from app.auth import ApiKeyAuthMiddleware, InternalAuth
 from app.config import settings
 from app.db.engine import build_engine, build_session_factory
 from app.exceptions import register_exception_handlers
@@ -33,6 +35,12 @@ async def lifespan(app: FastAPI):
     app.state.risk_model = RiskModel(settings.model_artifact_dir)
     await init_agent_graph()
 
+    if not settings.api_key:
+        logger.warning(
+            "API_KEY is not set — every endpoint except /healthz is unauthenticated. "
+            "Expected for local runs; never for a deployed task."
+        )
+
     logger.info(
         "startup complete",
         extra={"model_version": app.state.risk_model.model_version},
@@ -52,8 +60,13 @@ def create_app() -> FastAPI:
     # it's assigned onto app.router.lifespan_context afterward instead.
     app = FastAPI(title="RiskGuard AI")
     register_exception_handlers(app)
+    # Routers must be registered before the "/" mount below — Starlette matches
+    # routes in order, and the mount would otherwise swallow /healthz.
+    app.include_router(health_router)
     app.include_router(risk_router)
     app.include_router(remediation_router)
+    # Sits in front of routing, so it covers the mounted MCP app and /docs too.
+    app.add_middleware(ApiKeyAuthMiddleware)
 
     mcp_server = build_mcp_server(app)
     app.state.mcp_server = mcp_server  # lets tests reach it directly
@@ -72,6 +85,10 @@ def create_app() -> FastAPI:
                     httpx.AsyncClient(
                         transport=httpx.ASGITransport(app=app),
                         base_url="http://mcp-internal",
+                        # These calls re-enter the same ASGI app, so they pass
+                        # back through ApiKeyAuthMiddleware — without a
+                        # credential every MCP tool would 401 itself.
+                        auth=InternalAuth(),
                     )
                 )
                 await stack.enter_async_context(mcp_server.session_manager.run())

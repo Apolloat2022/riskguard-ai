@@ -42,12 +42,15 @@ def _raise_for_status(response) -> None:
 def build_mcp_server(app: "FastAPI") -> FastMCP:
     # DNS-rebinding Host-header protection defaults to rejecting every host
     # (an empty allow-list, not a permissive one) — appropriate for a local
-    # stdio/localhost MCP server, but this one is reached through a public
-    # ALB whose DNS name isn't knowable/stable at code-authoring time, and
-    # the REST API it wraps already has no auth in front of it (see
-    # AWS_DEPLOYMENT.md's known-gap note). Disabling this protection here
-    # doesn't weaken that existing posture; leaving it on would have broken
-    # every request, including legitimate ones.
+    # stdio/localhost MCP server, but this one is reached through a public ALB
+    # whose DNS name isn't knowable/stable at code-authoring time, so leaving
+    # it on would reject every request, legitimate ones included.
+    #
+    # Access control for this endpoint is ApiKeyAuthMiddleware (app/auth.py),
+    # which sits in front of routing and so covers this mounted app as well as
+    # the REST routes. Host-header checking defends browser-driven DNS
+    # rebinding against a loopback server; it was never the control doing the
+    # work for a token-authenticated service behind a load balancer.
     mcp = FastMCP(
         "riskguard-ai",
         stateless_http=True,

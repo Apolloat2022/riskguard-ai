@@ -14,13 +14,24 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+asyncpg://user:pass@localhost/riskguard"
 
     aws_region: str = "us-east-1"
-    bedrock_model_id: str = "anthropic.claude-sonnet-5"
+    # app/agent/llm.py uses AnthropicBedrock (the bedrock-runtime InvokeModel
+    # path), which wants a region-prefixed cross-region inference profile ID —
+    # not a bare "anthropic.<model>" ID. Keep this in sync with .env.example
+    # and task-def.json; a mismatch here only surfaces at the first Bedrock
+    # call, long after startup.
+    bedrock_model_id: str = "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
 
     model_artifact_dir: Path = Path("ml/artifacts/v1")
 
     risk_trigger_threshold: float = 0.70
 
     checkpointer_backend: Literal["memory", "postgres"] = "memory"
+
+    # Shared secret guarding every route except /healthz (see app/auth.py).
+    # Unset disables enforcement so local runs and the test suite work without
+    # ceremony; app/main.py logs a warning at startup when that happens. Any
+    # internet-reachable deployment must set API_KEY.
+    api_key: str | None = None
 
     log_level: str = "INFO"
 
