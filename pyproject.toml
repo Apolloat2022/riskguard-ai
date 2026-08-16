@@ -38,7 +38,13 @@ agent = [
     "anthropic[bedrock]>=0.40",
 ]
 mcp = [
-    "mcp>=1.9",
+    # Upper bound is load-bearing. app/mcp/server.py is written against the 1.x
+    # FastMCP API (`mcp.server.fastmcp.FastMCP`, `mcp.server.transport_security`),
+    # and 2.0 removed that module entirely in favour of `mcp.server.mcpserver`.
+    # With a bare `>=1.9` the repo built fine for months and then a fresh image
+    # silently resolved 2.0.0 and crashed on import at container start — nothing
+    # in the repo had changed. Moving to 2.x is a real migration, not a bump.
+    "mcp>=1.9,<2",
 ]
 dev = [
     "pytest>=8.2",
