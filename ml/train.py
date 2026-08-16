@@ -22,7 +22,7 @@ from __future__ import annotations
 import argparse
 import json
 import subprocess
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import joblib
@@ -50,13 +50,13 @@ from xgboost import XGBClassifier
 
 from ml.generate_dataset import FEATURE_NAMES, TARGET
 
-_XGB_PARAMS = dict(
-    max_depth=4,
-    learning_rate=0.05,
-    subsample=0.8,
-    colsample_bytree=0.8,
-    n_jobs=-1,
-)
+_XGB_PARAMS = {
+    "max_depth": 4,
+    "learning_rate": 0.05,
+    "subsample": 0.8,
+    "colsample_bytree": 0.8,
+    "n_jobs": -1,
+}
 
 
 def _build_preprocessor() -> ColumnTransformer:
@@ -164,13 +164,13 @@ def train(data_path: Path, artifact_dir: Path, seed: int, use_smote: bool) -> di
         "pr_auc": average_precision_score(y_test, test_proba),
         "confusion_matrix": confusion_matrix(y_test, test_pred).tolist(),
         "class_balance": {
-            "total_rows": int(len(df)),
+            "total_rows": len(df),
             "positive_rate": float(y.mean()),
         },
         "threshold": threshold,
         "n_estimators": n_estimators,
         "use_smote": use_smote,
-        "trained_at": datetime.now(timezone.utc).isoformat(),
+        "trained_at": datetime.now(UTC).isoformat(),
         "git_sha": _git_sha(),
         "model_version": artifact_dir.name,
     }

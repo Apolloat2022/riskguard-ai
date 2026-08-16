@@ -34,11 +34,35 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install dependencies
-        run: pip install -e ".[ml,api,agent,mcp,dev]"
+      # From the lock, not from the pyproject extras. `pip install -e ".[...]"`
+      # re-resolves against PyPI on every run, so CI would test a different
+      # dependency set from the one the image ships — which is how mcp 2.0.0
+      # reached production (see PR #3). --no-deps on the project install stops
+      # pip re-resolving the extras and defeating the lock.
+      - name: Install dependencies (locked)
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements-dev.lock
+          pip install --no-deps -e .
+
+      - name: Verify lock satisfies pyproject constraints
+        run: python scripts/check_lock.py ml api agent mcp dev
 
       - name: Lint
         run: ruff check app ml scripts tests
+
+      # The postgres service starts empty. Nothing else creates the schema, so
+      # every DB-backed test failed with `relation "customers" does not exist`
+      # — it just never showed, because the Lint step failed first and the job
+      # stopped there. Locally the tests pass against a Neon database whose
+      # schema was created by hand long ago, which is why this stayed invisible.
+      # The migration is idempotent (CREATE TABLE IF NOT EXISTS throughout).
+      - name: Create database schema
+        env:
+          PGPASSWORD: riskguard
+        run: |
+          psql -h localhost -U riskguard -d riskguard \
+            -v ON_ERROR_STOP=1 -f scripts/run_migration.sql
 
       # Model artifacts aren't committed (see .gitignore) — regenerate them
       # so the app lifespan (which loads RiskModel at startup) can run.
