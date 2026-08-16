@@ -31,15 +31,13 @@ async def _mcp_session(api_client):
     app = api_client.app
     transport = httpx.ASGITransport(app=app)
 
-    async with httpx.AsyncClient(transport=transport, base_url="http://test") as http_client:
-        async with streamable_http_client("http://test/mcp", http_client=http_client) as (
-            read,
-            write,
-            _,
-        ):
-            async with ClientSession(read, write) as session:
-                await session.initialize()
-                yield session
+    async with (
+        httpx.AsyncClient(transport=transport, base_url="http://test") as http_client,
+        streamable_http_client("http://test/mcp", http_client=http_client) as (read, write, _),
+        ClientSession(read, write) as session,
+    ):
+        await session.initialize()
+        yield session
 
 
 async def _wait_for_status(session: ClientSession, case_id: str, status: str, *, tries: int = 20) -> dict:

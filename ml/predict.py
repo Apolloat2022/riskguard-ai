@@ -63,5 +63,5 @@ class RiskModel:
             df = pd.DataFrame([row], columns=self._feature_names)
             proba = self._pipeline.predict_proba(df)[0, 1]
             return float(proba)
-        except Exception as exc:  # noqa: BLE001 - any inference failure is a ModelInferenceError
+        except Exception as exc:
             raise ModelInferenceError(f"inference failed: {exc}") from exc

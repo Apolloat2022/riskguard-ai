@@ -39,7 +39,7 @@ def _raise_for_status(response) -> None:
     raise ValueError(f"{response.status_code}: {message}")
 
 
-def build_mcp_server(app: "FastAPI") -> FastMCP:
+def build_mcp_server(app: FastAPI) -> FastMCP:
     # DNS-rebinding Host-header protection defaults to rejecting every host
     # (an empty allow-list, not a permissive one) — appropriate for a local
     # stdio/localhost MCP server, but this one is reached through a public ALB

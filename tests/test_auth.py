@@ -38,15 +38,13 @@ async def _mcp_session(api_client, headers: dict | None = None):
     transport = httpx.ASGITransport(app=api_client.app)
     async with httpx.AsyncClient(
         transport=transport, base_url="http://test", headers=headers or {}
-    ) as http_client:
-        async with streamable_http_client("http://test/mcp", http_client=http_client) as (
-            read,
-            write,
-            _,
-        ):
-            async with ClientSession(read, write) as session:
-                await session.initialize()
-                yield session
+    ) as http_client, streamable_http_client("http://test/mcp", http_client=http_client) as (
+        read,
+        write,
+        _,
+    ), ClientSession(read, write) as session:
+        await session.initialize()
+        yield session
 
 
 async def test_healthz_is_reachable_without_a_key(api_client, auth_on):

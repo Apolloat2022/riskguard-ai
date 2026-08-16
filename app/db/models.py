@@ -53,9 +53,9 @@ class Customer(Base):
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
 
-    payment_events: Mapped[list["PaymentEvent"]] = relationship(back_populates="customer")
-    risk_assessments: Mapped[list["RiskAssessment"]] = relationship(back_populates="customer")
-    remediation_cases: Mapped[list["RemediationCase"]] = relationship(back_populates="customer")
+    payment_events: Mapped[list[PaymentEvent]] = relationship(back_populates="customer")
+    risk_assessments: Mapped[list[RiskAssessment]] = relationship(back_populates="customer")
+    remediation_cases: Mapped[list[RemediationCase]] = relationship(back_populates="customer")
 
 
 class PaymentEvent(Base):
@@ -74,7 +74,7 @@ class PaymentEvent(Base):
     )
     amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
 
-    customer: Mapped["Customer"] = relationship(back_populates="payment_events")
+    customer: Mapped[Customer] = relationship(back_populates="payment_events")
 
 
 Index("idx_payment_events_customer", PaymentEvent.customer_id, PaymentEvent.due_date.desc())
@@ -103,8 +103,8 @@ class RiskAssessment(Base):
         DateTime(timezone=True), server_default=func.now()
     )
 
-    customer: Mapped["Customer"] = relationship(back_populates="risk_assessments")
-    remediation_cases: Mapped[list["RemediationCase"]] = relationship(
+    customer: Mapped[Customer] = relationship(back_populates="risk_assessments")
+    remediation_cases: Mapped[list[RemediationCase]] = relationship(
         back_populates="risk_assessment"
     )
 
@@ -148,8 +148,8 @@ class RemediationCase(Base):
     )
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
-    customer: Mapped["Customer"] = relationship(back_populates="remediation_cases")
-    risk_assessment: Mapped["RiskAssessment"] = relationship(back_populates="remediation_cases")
+    customer: Mapped[Customer] = relationship(back_populates="remediation_cases")
+    risk_assessment: Mapped[RiskAssessment] = relationship(back_populates="remediation_cases")
 
 
 class AuditLog(Base):

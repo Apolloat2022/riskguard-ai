@@ -13,7 +13,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import random
-from datetime import date, timedelta
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 from app.db.engine import build_engine, build_session_factory
@@ -61,7 +61,9 @@ def _make_payment_events(
 ) -> list[PaymentEvent]:
     n_events = rng.randint(6, 10) if is_high_risk else rng.randint(4, 12)
     late_rate = 0.7 if is_high_risk else 0.10
-    today = date.today()
+    # Seed data is anchored to UTC rather than the seeder's local date, so a
+    # demo seeded in one timezone lines up with assertions made in another.
+    today = datetime.now(UTC).date()
 
     events = []
     for k in range(n_events):

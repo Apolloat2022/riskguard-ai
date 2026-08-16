@@ -77,22 +77,21 @@ def create_app() -> FastAPI:
 
     @asynccontextmanager
     async def combined_lifespan(app: FastAPI):
-        async with lifespan(app):
-            async with AsyncExitStack() as stack:
-                # A mounted sub-application's lifespan never runs, so the
-                # MCP session manager must be entered explicitly here.
-                app.state.mcp_http_client = await stack.enter_async_context(
-                    httpx.AsyncClient(
-                        transport=httpx.ASGITransport(app=app),
-                        base_url="http://mcp-internal",
-                        # These calls re-enter the same ASGI app, so they pass
-                        # back through ApiKeyAuthMiddleware — without a
-                        # credential every MCP tool would 401 itself.
-                        auth=InternalAuth(),
-                    )
+        async with lifespan(app), AsyncExitStack() as stack:
+            # A mounted sub-application's lifespan never runs, so the
+            # MCP session manager must be entered explicitly here.
+            app.state.mcp_http_client = await stack.enter_async_context(
+                httpx.AsyncClient(
+                    transport=httpx.ASGITransport(app=app),
+                    base_url="http://mcp-internal",
+                    # These calls re-enter the same ASGI app, so they pass
+                    # back through ApiKeyAuthMiddleware — without a
+                    # credential every MCP tool would 401 itself.
+                    auth=InternalAuth(),
                 )
-                await stack.enter_async_context(mcp_server.session_manager.run())
-                yield
+            )
+            await stack.enter_async_context(mcp_server.session_manager.run())
+            yield
 
     app.router.lifespan_context = combined_lifespan
     return app

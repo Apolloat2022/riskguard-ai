@@ -22,7 +22,7 @@ from __future__ import annotations
 import logging
 import uuid
 from contextlib import AsyncExitStack, asynccontextmanager
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, StateGraph
@@ -88,10 +88,9 @@ def _psycopg_dsn(database_url: str) -> str:
 @asynccontextmanager
 async def _checkpointer_cm():
     if settings.checkpointer_backend == "postgres":
+        from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
         from psycopg.rows import dict_row
         from psycopg_pool import AsyncConnectionPool
-
-        from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 
         # A single long-lived connection (the from_conn_string() shortcut) goes
         # silently stale once Neon closes it for being idle, and every request
@@ -216,10 +215,10 @@ async def run_case(
             case.status = "AWAITING_HUMAN_REVIEW"
         elif last_node == "finalize":
             case.status = "APPROVED"
-            case.resolved_at = datetime.now(timezone.utc)
+            case.resolved_at = datetime.now(UTC)
         elif last_node == "escalate":
             case.status = "ESCALATED"
-            case.resolved_at = datetime.now(timezone.utc)
+            case.resolved_at = datetime.now(UTC)
 
         session.add(
             AuditLog(
@@ -238,7 +237,7 @@ async def run_case(
             case = await failure_session.get(RemediationCase, uuid.UUID(case_id))
             if case is not None:
                 case.status = "ESCALATED"
-                case.resolved_at = datetime.now(timezone.utc)
+                case.resolved_at = datetime.now(UTC)
                 case.compliance_notes = f"Workflow failed: {exc}"
                 failure_session.add(
                     AuditLog(
