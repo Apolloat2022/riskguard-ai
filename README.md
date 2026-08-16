@@ -195,12 +195,12 @@ image:
 
 ```bash
 docker run --rm -v "$PWD:/w" -w /w python:3.12-slim sh -c \
-  "pip install -q uv && uv pip compile --extra ml --extra api --extra agent \
+  "pip install -q uv && uv pip compile --universal --extra ml --extra api --extra agent \
    --extra mcp pyproject.toml -o requirements.lock"
 
 # and the dev variant, so local envs match CI and the image
 docker run --rm -v "$PWD:/w" -w /w python:3.12-slim sh -c \
-  "pip install -q uv && uv pip compile --extra ml --extra api --extra agent \
+  "pip install -q uv && uv pip compile --universal --extra ml --extra api --extra agent \
    --extra mcp --extra dev pyproject.toml -o requirements-dev.lock"
 ```
 
@@ -208,15 +208,19 @@ After regenerating, diff the resulting image's `pip freeze` against the running
 one before deploying — an unintended version bump is much easier to see there
 than in a 300-line lock diff.
 
-**The locks are linux artifacts, not local dev inputs.** They contain
-`uvloop==0.22.1` with no environment marker, because `uv pip compile` resolved
-them for linux only and uvloop ships no Windows wheels — `pip install -r
-requirements.lock` fails outright on Windows. Local development installs from
-the `pyproject` ranges instead, which means **CI is the source of truth for
-dependency versions**, not your venv.
+**The locks are universal**, so one file installs correctly on Windows and
+linux. Entries that don't apply everywhere carry a marker rather than being
+silently omitted — e.g. `uvloop==0.22.1 ; sys_platform != 'win32'`, which pip
+skips on Windows and installs in the image.
 
-Regenerating with `uv pip compile --universal` would emit markers valid on both
-platforms and close that gap; it is not done yet.
+`--universal` is load-bearing, not decoration. Without it `uv pip compile`
+resolves for whichever platform it runs on and emits uvloop **unmarked**, which
+makes the lock uninstallable on Windows and pushes local development back onto
+the unpinned `pyproject` ranges — the exact divergence the lock exists to
+remove.
+
+Verified both directions: the universal lock installs on Windows with uvloop
+correctly skipped, and resolves to a byte-identical 92-package set on linux.
 
 ## Verification notes (this build)
 
