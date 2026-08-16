@@ -16,12 +16,30 @@ RUN apt-get update && apt-get install -y --no-install-recommends build-essential
 RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
+# Dependencies come from the lockfile, not from resolving the pyproject extras
+# at build time. `pip install ".[...]"` re-resolves against PyPI on every build,
+# which is how a fresh image silently picked up mcp 2.0.0 and crashed on import
+# while the repo and the local venv were both unchanged.
+#
+# Regenerate with (must run on linux/amd64 — marker resolution is
+# platform-specific, so a lock generated on Windows is not installable here):
+#   docker run --rm -v "$PWD:/w" -w /w python:3.12-slim sh -c \
+#     "pip install -q uv && uv pip compile --extra ml --extra api --extra agent \
+#      --extra mcp pyproject.toml -o requirements.lock"
+#
+# Copied before the source so the 92-package layer is cached across source-only
+# changes.
+COPY requirements.lock ./
+RUN pip install --no-cache-dir --upgrade pip \
+    && pip install --no-cache-dir -r requirements.lock
+
 COPY pyproject.toml README.md ./
 COPY app ./app
 COPY ml ./ml
 
-RUN pip install --no-cache-dir --upgrade pip \
-    && pip install --no-cache-dir ".[ml,api,agent,mcp]"
+# --no-deps: every dependency is already installed at its locked version above,
+# and without this flag pip would re-resolve the extras and defeat the lock.
+RUN pip install --no-cache-dir --no-deps .
 
 
 FROM python:3.12-slim AS runtime

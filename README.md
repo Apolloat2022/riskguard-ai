@@ -167,6 +167,39 @@ pytest
 All DB-backed tests create their own rows (prefixed `TEST-...`) and clean them up —
 none of them touch the seeded demo data.
 
+## Dependencies and the lockfile
+
+`pyproject.toml` declares loose ranges for humans; `requirements.lock` is what
+actually gets installed. The Docker build installs from the lock and then the
+app itself with `--no-deps`, so a build never re-resolves against PyPI.
+
+This exists because it bit. `mcp>=1.9` had no upper bound, a fresh image
+resolved **mcp 2.0.0**, and the container crash-looped on
+`from mcp.server.fastmcp import FastMCP` — a module 2.0 removed. Nothing in the
+repo had changed. The local venv still held 1.28.1, so the full suite passed
+while the container could not start: the tests never exercise a fresh
+dependency resolution, which makes that whole class of failure invisible to
+them.
+
+**Regenerating must happen on linux/amd64.** Marker resolution is
+platform-specific, so a lock generated on Windows is not installable in the
+image:
+
+```bash
+docker run --rm -v "$PWD:/w" -w /w python:3.12-slim sh -c \
+  "pip install -q uv && uv pip compile --extra ml --extra api --extra agent \
+   --extra mcp pyproject.toml -o requirements.lock"
+
+# and the dev variant, so local envs match CI and the image
+docker run --rm -v "$PWD:/w" -w /w python:3.12-slim sh -c \
+  "pip install -q uv && uv pip compile --extra ml --extra api --extra agent \
+   --extra mcp --extra dev pyproject.toml -o requirements-dev.lock"
+```
+
+After regenerating, diff the resulting image's `pip freeze` against the running
+one before deploying — an unintended version bump is much easier to see there
+than in a 300-line lock diff.
+
 ## Verification notes (this build)
 
 Everything above was exercised against a **live Neon Postgres** instance during
