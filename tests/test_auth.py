@@ -115,6 +115,65 @@ async def test_mcp_tool_works_with_key_and_internal_loopback_authenticates(
         assert body["risk_flag"] in ("LOW", "MEDIUM")
 
 
+async def _raw_get(app, path: str, headers: list[tuple[bytes, bytes]]):
+    """Drive the ASGI app directly.
+
+    httpx refuses to send a non-ASCII header value, but curl and any raw HTTP
+    client will happily put arbitrary bytes there — so the client-side guard
+    proves nothing about what the server does with them.
+    """
+    scope = {
+        "type": "http",
+        "asgi": {"version": "3.0"},
+        "http_version": "1.1",
+        "method": "GET",
+        "path": path,
+        "raw_path": path.encode(),
+        "query_string": b"",
+        "root_path": "",
+        "scheme": "http",
+        "headers": headers,
+        "client": ("127.0.0.1", 1),
+        "server": ("test", 80),
+    }
+    captured: dict = {}
+
+    async def receive():
+        return {"type": "http.request", "body": b"", "more_body": False}
+
+    async def send(message):
+        if message["type"] == "http.response.start":
+            captured["status"] = message["status"]
+
+    await app(scope, receive, send)
+    return captured.get("status")
+
+
+async def test_non_ascii_credential_is_rejected_not_a_500(api_client, auth_on):
+    # secrets.compare_digest raises TypeError on a non-ASCII str, so comparing
+    # the raw header as str let an *unauthenticated* caller turn a 401 into a
+    # 500 with a stack trace in the logs. The comparison is done on bytes.
+    for header in (b"authorization", b"x-api-key"):
+        value = b"Bearer k\xc3\xa9y" if header == b"authorization" else b"k\xc3\xa9y"
+        status = await _raw_get(api_client.app, "/api/v1/risk-assessment/1", [(header, value)])
+        assert status == 401, header
+
+
+async def test_healthz_is_exempt_with_a_trailing_slash(api_client, auth_on):
+    # A stray slash in the ALB health-check path would 401 every probe and have
+    # ECS replace healthy tasks — an outage caused by punctuation.
+    assert (await api_client.get("/healthz/")).status_code == 200
+
+
+async def test_no_websocket_routes_exist(api_client):
+    # Canary. The middleware guards scope["type"] == "http" only, so a
+    # websocket route would bypass auth completely. If this ever fails, extend
+    # the middleware before adding the route.
+    from starlette.routing import WebSocketRoute
+
+    assert not [r for r in api_client.app.routes if isinstance(r, WebSocketRoute)]
+
+
 async def test_unset_key_leaves_endpoints_open(api_client, monkeypatch):
     monkeypatch.setattr(settings, "api_key", None)
     assert (await api_client.get("/healthz")).status_code == 200

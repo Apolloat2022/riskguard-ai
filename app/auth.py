@@ -65,7 +65,21 @@ class ApiKeyAuthMiddleware:
         self.app = app
         self.exempt_paths = frozenset(exempt_paths)
 
+    def _is_exempt(self, scope) -> bool:
+        """Exempt-path match, tolerant of a trailing slash.
+
+        Paired with the matching route alias in app/api/health.py: exempting
+        `/healthz/` here only turns a 401 into a 404 unless the route also
+        exists. Both are needed for a hand-typed health-check path with a stray
+        slash to actually work rather than fail a different way.
+        """
+        path = scope.get("path") or ""
+        return path in self.exempt_paths or path.rstrip("/") in self.exempt_paths
+
     async def __call__(self, scope, receive, send):
+        # Only "http" is guarded. "lifespan" must pass through, and there are
+        # no websocket routes — see test_auth.py's canary, which fails if one
+        # is ever added, because a websocket would bypass this entirely.
         if scope["type"] != "http":
             await self.app(scope, receive, send)
             return
@@ -73,14 +87,20 @@ class ApiKeyAuthMiddleware:
         # Read the key per-request rather than capturing it at construction:
         # the middleware is built once, but tests flip settings.api_key per case.
         expected = settings.api_key
-        if not expected or scope.get("path") in self.exempt_paths:
+        if not expected or self._is_exempt(scope):
             await self.app(scope, receive, send)
             return
 
         presented = _presented_key(scope)
-        # compare_digest needs both operands present and same-type; it is used
-        # here so a wrong key can't be recovered by timing the comparison.
-        if presented is not None and secrets.compare_digest(presented, expected):
+        if presented is not None and secrets.compare_digest(
+            # Compared as bytes, not str: compare_digest raises TypeError on a
+            # str containing non-ASCII, and a header value is attacker-supplied
+            # bytes. Comparing as str let an unauthenticated caller turn a 401
+            # into a 500 with a stack trace. Bytes have no such restriction, and
+            # the constant-time property is unchanged.
+            presented.encode("utf-8", "surrogateescape"),
+            expected.encode("utf-8", "surrogateescape"),
+        ):
             await self.app(scope, receive, send)
             return
 

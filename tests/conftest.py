@@ -66,7 +66,7 @@ async def api_client():
     try:
         transport = httpx.ASGITransport(app=app)
         async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
-            client.app = app  # test_mcp.py needs the same app instance for its MCP client
+            client.app = app  # test_mcp.py and test_auth.py need the same app instance
             yield client
     finally:
         try:

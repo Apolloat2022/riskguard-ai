@@ -17,7 +17,14 @@ from fastapi import APIRouter, Request
 router = APIRouter(tags=["health"])
 
 
+# Registered on both spellings on purpose. FastAPI would normally redirect
+# "/healthz/" to "/healthz", but app/main.py mounts the MCP app at "/", and the
+# mount catches every unmatched path before the redirect can happen — so the
+# trailing-slash form 404s instead. The ALB health-check path is typed by hand
+# into the target group, and a stray slash there would fail every probe and
+# have ECS replace healthy tasks. One extra decorator removes that failure mode.
 @router.get("/healthz")
+@router.get("/healthz/", include_in_schema=False)
 async def healthz(request: Request) -> dict:
     risk_model = getattr(request.app.state, "risk_model", None)
     return {
