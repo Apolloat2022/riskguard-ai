@@ -51,6 +51,19 @@ jobs:
       - name: Lint
         run: ruff check app ml scripts tests
 
+      # The postgres service starts empty. Nothing else creates the schema, so
+      # every DB-backed test failed with `relation "customers" does not exist`
+      # — it just never showed, because the Lint step failed first and the job
+      # stopped there. Locally the tests pass against a Neon database whose
+      # schema was created by hand long ago, which is why this stayed invisible.
+      # The migration is idempotent (CREATE TABLE IF NOT EXISTS throughout).
+      - name: Create database schema
+        env:
+          PGPASSWORD: riskguard
+        run: |
+          psql -h localhost -U riskguard -d riskguard \
+            -v ON_ERROR_STOP=1 -f scripts/run_migration.sql
+
       # Model artifacts aren't committed (see .gitignore) — regenerate them
       # so the app lifespan (which loads RiskModel at startup) can run.
       - name: Generate dataset and train model artifacts
