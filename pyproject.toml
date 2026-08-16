@@ -6,7 +6,11 @@ build-backend = "hatchling.build"
 name = "riskguard-ai"
 version = "0.1.0"
 description = "Enterprise risk analytics & automated remediation platform"
-requires-python = ">=3.11,<3.13"
+# 3.12 only. CI (`setup-python: "3.12"`) and the image (`python:3.12-slim`) have
+# both been on 3.12 all along; declaring 3.11 support claimed something nothing
+# verified. A local 3.11 venv is what let 30 lint violations pass locally while
+# CI failed on them, because the two resolved different tool versions.
+requires-python = ">=3.12,<3.13"
 readme = "README.md"
 
 dependencies = [
