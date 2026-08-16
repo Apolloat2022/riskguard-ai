@@ -34,8 +34,19 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install dependencies
-        run: pip install -e ".[ml,api,agent,mcp,dev]"
+      # From the lock, not from the pyproject extras. `pip install -e ".[...]"`
+      # re-resolves against PyPI on every run, so CI would test a different
+      # dependency set from the one the image ships — which is how mcp 2.0.0
+      # reached production (see PR #3). --no-deps on the project install stops
+      # pip re-resolving the extras and defeating the lock.
+      - name: Install dependencies (locked)
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements-dev.lock
+          pip install --no-deps -e .
+
+      - name: Verify lock satisfies pyproject constraints
+        run: python scripts/check_lock.py ml api agent mcp dev
 
       - name: Lint
         run: ruff check app ml scripts tests
