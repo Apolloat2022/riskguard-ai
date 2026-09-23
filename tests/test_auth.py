@@ -69,10 +69,13 @@ async def test_rest_endpoint_rejects_wrong_key(api_client, auth_on):
     assert resp.status_code == 401
 
 
-async def test_docs_are_protected(api_client, auth_on):
-    # /docs was the ALB health-check path before /healthz existed; it publishes
-    # the full API schema, so it must not stay open once auth is on.
-    assert (await api_client.get("/docs")).status_code == 401
+async def test_docs_are_public_but_advertise_the_key(api_client, auth_on):
+    # Swagger UI is deliberately open so the demo API can be browsed; it must
+    # offer "Authorize" for X-API-Key, and the routes it lists stay guarded.
+    assert (await api_client.get("/docs")).status_code == 200
+    schema = (await api_client.get("/openapi.json")).json()
+    assert schema["components"]["securitySchemes"]["APIKeyHeader"]["name"] == "X-API-Key"
+    assert (await api_client.get("/api/v1/risk-assessment/1")).status_code == 401
 
 
 async def test_bearer_and_x_api_key_are_both_accepted(api_client, auth_on, low_risk_customer_id):
