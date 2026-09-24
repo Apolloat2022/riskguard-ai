@@ -33,10 +33,12 @@ from app.config import settings
 
 logger = logging.getLogger(__name__)
 
-# Unauthenticated by necessity: the ALB target group health-checks this path,
-# and a 401 here would mark every task unhealthy and trigger replacement.
-# Keep it to endpoints that expose nothing — /healthz reports liveness only.
-EXEMPT_PATHS = frozenset({"/healthz"})
+# Unauthenticated on purpose. /healthz: the ALB target group health-checks it,
+# and a 401 would mark every task unhealthy. /docs + /openapi.json: the demo's
+# Swagger UI is public so the API can be browsed; it only describes routes, and
+# every route it lists still demands the key (paste it via "Authorize").
+# Keep this to endpoints that execute nothing.
+EXEMPT_PATHS = frozenset({"/healthz", "/docs", "/openapi.json"})
 
 _BEARER_PREFIX = "bearer "
 

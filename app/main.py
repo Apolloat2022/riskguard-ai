@@ -8,7 +8,8 @@ import logging
 from contextlib import AsyncExitStack, asynccontextmanager
 
 import httpx
-from fastapi import FastAPI
+from fastapi import FastAPI, Security
+from fastapi.security import APIKeyHeader
 
 from app.agent.graph import init_agent_graph, shutdown_agent_graph
 from app.api.health import router as health_router
@@ -58,14 +59,20 @@ def create_app() -> FastAPI:
     # instance to already exist (its tools close over app.state), so the
     # combined lifespan below can't be passed to FastAPI(...) up front —
     # it's assigned onto app.router.lifespan_context afterward instead.
-    app = FastAPI(title="RiskGuard AI")
+    # The APIKeyHeader dependency does no checking (auto_error=False; the
+    # middleware enforces the key). It only declares the scheme in the OpenAPI
+    # schema so Swagger UI shows an "Authorize" button that sends X-API-Key.
+    app = FastAPI(
+        title="RiskGuard AI",
+        dependencies=[Security(APIKeyHeader(name="X-API-Key", auto_error=False))],
+    )
     register_exception_handlers(app)
     # Routers must be registered before the "/" mount below — Starlette matches
     # routes in order, and the mount would otherwise swallow /healthz.
     app.include_router(health_router)
     app.include_router(risk_router)
     app.include_router(remediation_router)
-    # Sits in front of routing, so it covers the mounted MCP app and /docs too.
+    # Sits in front of routing, so it covers the mounted MCP app too.
     app.add_middleware(ApiKeyAuthMiddleware)
 
     mcp_server = build_mcp_server(app)
