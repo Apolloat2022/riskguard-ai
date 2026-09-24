@@ -525,7 +525,7 @@ cat > deploy-policy.json <<'EOF'
      "ecr:UploadLayerPart","ecr:CompleteLayerUpload","ecr:PutImage","ecr:BatchGetImage"],
    "Resource":"arn:aws:ecr:us-east-1:924056189531:repository/riskguard-ai"},
   {"Effect":"Allow","Action":["ecs:UpdateService","ecs:DescribeServices"],
-   "Resource":"arn:aws:ecs:us-east-1:924056189531:service/riskguard-cluster/riskguard-ai"}]}
+   "Resource":"arn:aws:ecs:us-east-1:924056189531:service/riskguard-cluster/riskguard-ai-service-2wgi0kru"}]}
 EOF
 
 aws iam create-role --role-name riskguard-gha-deploy   --assume-role-policy-document file://trust.json
@@ -543,14 +543,14 @@ The ALB bills hourly whether tasks are running or not. Two options:
 **Pause between interviews/demos** (keeps everything configured, ECS + ALB charges stop
 for compute but ALB itself still bills ~$16-20/mo):
 ```bash
-aws ecs update-service --cluster riskguard-cluster --service riskguard-ai --desired-count 0
+aws ecs update-service --cluster riskguard-cluster --service riskguard-ai-service-2wgi0kru --desired-count 0
 ```
 
 **Full teardown** (stops all charges, takes ~10 min to recreate from this doc + your
 pushed image):
 ```bash
-aws ecs update-service --cluster riskguard-cluster --service riskguard-ai --desired-count 0
-aws ecs delete-service --cluster riskguard-cluster --service riskguard-ai
+aws ecs update-service --cluster riskguard-cluster --service riskguard-ai-service-2wgi0kru --desired-count 0
+aws ecs delete-service --cluster riskguard-cluster --service riskguard-ai-service-2wgi0kru
 # then delete the ALB, target group, and cluster from the console (fastest for the
 # ALB/target-group pair specifically — it's two clicks vs several CLI calls)
 aws ecs delete-cluster --cluster riskguard-cluster
