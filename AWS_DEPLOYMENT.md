@@ -492,65 +492,49 @@ environment — the task role fixes exactly that).
 
 ## Step 12 — CI/CD: auto-deploy on push to `main`
 
-`.github/workflows/ci.yml` already lints, trains artifacts, tests, and does a
-`docker build` — it just never pushes anywhere. Add a deploy job. Use GitHub's OIDC
-provider to assume an AWS role instead of storing long-lived access keys as GitHub
-secrets — this is worth doing right and worth mentioning in an interview.
+Implemented in `.github/workflows/ci.yml`: on a push to `main` (a merged PR), the
+`docker-build` job — after `test` passes and the image builds — assumes an AWS role via
+GitHub's OIDC provider (no long-lived keys in GitHub secrets; worth mentioning in an
+interview), pushes the image as `:latest` and `:<git sha>`, forces a new ECS deployment
+and waits for the service to go stable. PRs build the image but never deploy.
+
+The task definition runs `:latest`, so that push + `--force-new-deployment` is the whole
+rollout. `:<sha>` exists so a past build can be pinned for a rollback. (A stricter
+pipeline would register a task-definition revision per SHA.)
+
+One-time AWS setup (run as an IAM admin). The OIDC provider already exists in this
+account; create it first only in a fresh account:
 
 ```bash
-aws iam create-open-id-connect-provider \
-  --url https://token.actions.githubusercontent.com \
-  --client-id-list sts.amazonaws.com \
-  --thumbprint-list 6938fd4d98bab03faadb97b34396831e3780aea1
+# aws iam create-open-id-connect-provider #   --url https://token.actions.githubusercontent.com --client-id-list sts.amazonaws.com
 
-aws iam create-role --role-name riskguard-gha-deploy \
-  --assume-role-policy-document '{
-    "Version":"2012-10-17",
-    "Statement":[{
-      "Effect":"Allow",
-      "Principal":{"Federated":"arn:aws:iam::<ACCOUNT_ID>:oidc-provider/token.actions.githubusercontent.com"},
-      "Action":"sts:AssumeRoleWithWebIdentity",
-      "Condition":{"StringEquals":{
-        "token.actions.githubusercontent.com:sub":"repo:Apolloat2022/riskguard-ai:ref:refs/heads/main"
-      }}
-    }]
-  }'
-# Attach a policy scoped to ecr:*, ecs:UpdateService/DescribeServices/RegisterTaskDefinition
+cat > trust.json <<'EOF'
+{"Version":"2012-10-17","Statement":[{
+  "Effect":"Allow",
+  "Principal":{"Federated":"arn:aws:iam::924056189531:oidc-provider/token.actions.githubusercontent.com"},
+  "Action":"sts:AssumeRoleWithWebIdentity",
+  "Condition":{"StringEquals":{
+    "token.actions.githubusercontent.com:aud":"sts.amazonaws.com",
+    "token.actions.githubusercontent.com:sub":"repo:Apolloat2022/riskguard-ai:ref:refs/heads/main"}}}]}
+EOF
+
+cat > deploy-policy.json <<'EOF'
+{"Version":"2012-10-17","Statement":[
+  {"Effect":"Allow","Action":"ecr:GetAuthorizationToken","Resource":"*"},
+  {"Effect":"Allow","Action":["ecr:BatchCheckLayerAvailability","ecr:InitiateLayerUpload",
+     "ecr:UploadLayerPart","ecr:CompleteLayerUpload","ecr:PutImage","ecr:BatchGetImage"],
+   "Resource":"arn:aws:ecr:us-east-1:924056189531:repository/riskguard-ai"},
+  {"Effect":"Allow","Action":["ecs:UpdateService","ecs:DescribeServices"],
+   "Resource":"arn:aws:ecs:us-east-1:924056189531:service/riskguard-cluster/riskguard-ai"}]}
+EOF
+
+aws iam create-role --role-name riskguard-gha-deploy   --assume-role-policy-document file://trust.json
+aws iam put-role-policy --role-name riskguard-gha-deploy   --policy-name riskguard-deploy --policy-document file://deploy-policy.json
 ```
 
-Append to `.github/workflows/ci.yml`:
-
-```yaml
-  deploy:
-    runs-on: ubuntu-latest
-    needs: docker-build
-    if: github.ref == 'refs/heads/main'
-    permissions:
-      id-token: write
-      contents: read
-    steps:
-      - uses: actions/checkout@v4
-      - uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: arn:aws:iam::<ACCOUNT_ID>:role/riskguard-gha-deploy
-          aws-region: us-east-1
-      - uses: aws-actions/amazon-ecr-login@v2
-        id: ecr
-      - name: Build, tag, push
-        run: |
-          python ml/generate_dataset.py --rows 5000 --seed 42
-          python ml/train.py
-          docker build -t ${{ steps.ecr.outputs.registry }}/riskguard-ai:${{ github.sha }} .
-          docker push ${{ steps.ecr.outputs.registry }}/riskguard-ai:${{ github.sha }}
-      - name: Update ECS service
-        run: |
-          aws ecs update-service --cluster riskguard-cluster \
-            --service riskguard-ai --force-new-deployment
-```
-
-(This assumes you update the task definition's image tag separately, or switch to
-`:latest` and just force a new deployment — fine for a portfolio project; a stricter
-pipeline would render a new task-definition revision per SHA.)
+The `sub` condition pins the role to pushes on `main` of this one repo — a PR branch or a
+fork can't assume it. No `iam:PassRole` is needed: the job only forces a redeploy of the
+existing task definition, it never registers a new one.
 
 ## Cost control & teardown
 
