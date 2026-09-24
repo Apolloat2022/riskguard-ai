@@ -141,6 +141,58 @@ has a complete working client example (`ClientSession` over
 `get_remediation_case(case_id)`, and `resume_remediation_case(case_id, approved, notes)`,
 plus a `compliance://regulations/{state}` resource.
 
+## Live demo (Swagger UI)
+
+The deployed API is at `http://riskguard-alb-143265901.us-east-1.elb.amazonaws.com`.
+`/docs` (Swagger UI) and `/openapi.json` are public so the API can be browsed; every
+endpoint they list still requires the API key.
+
+**Get the API key.** It lives in AWS Secrets Manager (us-east-1) as
+`riskguard-ai/api-key` — the ECS task injects it as `API_KEY`. Console: Secrets Manager →
+`riskguard-ai/api-key` → **Retrieve secret value**, or:
+
+```bash
+aws secretsmanager get-secret-value --secret-id riskguard-ai/api-key   --region us-east-1 --query SecretString --output text
+```
+
+This is *not* an AWS access key — never paste AWS credentials into Swagger.
+
+**Walk the flow:**
+
+1. Open `/docs` → **Authorize** → paste the key into `APIKeyHeader (apiKey)` →
+   **Authorize** → **Close**. The padlock icons now show locked; Swagger sends it as
+   `X-API-Key` on every call.
+2. `POST /api/v1/risk-assessment/{customer_id}` → **Try it out** → `28` → **Execute**.
+   Expect `risk_flag: "CRITICAL"`, `default_probability` ≈ 0.99 and a
+   `remediation_case_id` — copy it. (High-risk seeded customers: 7, 14, 21, 28, 35, 42, 49;
+   anything else scores lower and returns `remediation_case_id: null`.)
+3. `GET /api/v1/remediation/{case_id}` with that ID. The agent runs in the background
+   (policy retrieval → Bedrock draft → compliance check), so re-execute every ~15 s until
+   `status` is `AWAITING_HUMAN_REVIEW`; `remediation_plan` then holds the drafted plan.
+4. Decide as the compliance officer — either:
+   - `POST /api/v1/remediation/{case_id}/approve` → `status: "APPROVED"`, `resolved_at` set.
+   - `POST /api/v1/remediation/{case_id}/reject` with body `{"notes": "Shorten the term
+     extension."}` → the agent redrafts with your notes and the case returns to review
+     with `revision_count` incremented.
+
+   The body is optional on both (`{"notes": "..."}` only — the endpoint decides
+   approve vs. reject).
+
+Each step-2 execute opens a new case, so the flow is repeatable.
+
+**If something's off:**
+
+| Response | Meaning |
+|---|---|
+| `401 unauthorized` | Key missing or mistyped (watch for a trailing space/newline) — re-Authorize. |
+| `404` on step 2 | No such customer; the seeded IDs are 1–50. |
+| `404` on step 3 | Case ID mistyped. |
+| `409` on approve/reject | Case isn't in `AWAITING_HUMAN_REVIEW` yet (still drafting) or was already decided — check step 3. |
+| `status: "ESCALATED"` | The agent gave up: the Bedrock call failed/timed out, or compliance rejected the draft. `compliance_notes` says which; CloudWatch logs have details. |
+
+The `curl` demo above targets a local run with `API_KEY` unset. Against the deployed API,
+add `-H "X-API-Key: $API_KEY"` to each call.
+
 ## Model card (from `ml/artifacts/v1/metrics.json`)
 
 | Metric | Value |
