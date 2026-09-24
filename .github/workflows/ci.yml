@@ -127,6 +127,6 @@ jobs:
           docker tag riskguard-ai:ci "$IMAGE:latest"
           docker push --all-tags "$IMAGE"
           aws ecs update-service --cluster riskguard-cluster \
-            --service riskguard-ai --force-new-deployment > /dev/null
+            --service riskguard-ai-service-2wgi0kru --force-new-deployment > /dev/null
           aws ecs wait services-stable --cluster riskguard-cluster \
-            --services riskguard-ai
+            --services riskguard-ai-service-2wgi0kru
